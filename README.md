@@ -47,9 +47,21 @@ BGS.cheat.cash(5000)  // 加金币
 BGS.cheat.rep(25)     // 加声望
 ```
 
-## 一键部署（本项目已启用）
+## 一键部署（阿里云）
 
-仓库已开启 GitHub Pages（main 分支根目录）：**push 到 main 即自动发布**，1~2 分钟后线上更新，无需其他操作。
+项目是纯静态站点（无构建），一条命令发布到阿里云：
+
+```bash
+# ① 首次：服务器上跑一次初始化（装 nginx + 站点配置）
+scp tools/deploy/server-setup.sh root@<服务器IP>:/tmp/ && ssh root@<服务器IP> bash /tmp/server-setup.sh
+
+# ② 编辑 tools/deploy/deploy.sh 配置区（IP/用户/目录），以后每次发布：
+bash tools/deploy/deploy.sh
+```
+
+- 发布方式：打包 → 解压到 `releases/<时间戳>` → 原子切换 `current` 软链（保留最近 5 版可回滚）
+- nginx 已配好 `.glb`/`.mjs` MIME、gzip、缓存策略；安全组放行 80（HTTPS 用 certbot 一条命令）
+- 备用：https://xin1ya.github.io/Game-Shop-Simulator/（GitHub Pages，push main 自动更新）
 
 ## 技术栈
 
