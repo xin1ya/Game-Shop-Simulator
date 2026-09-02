@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>桌游店物语 · Boardgame Shop Tycoon</title>
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene-canvas"></canvas>
+    <div id="hud-root"></div>
+    <div id="panel-root"></div>
+    <div id="popup-root"></div>
+  </div>
+  <script type="module">
+    // Three.js CDN 加载：unpkg 主用，jsdelivr 备用。
+    // 先探测可达性，再注入 import map，最后加载游戏入口。
+    const CDN_URLS = [
+      'https://unpkg.com/three@0.160.0/build/three.module.js',
+      'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+    ];
+    async function probe(url, timeoutMs) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        // GET（响应头到达即返回，不读 body）——HEAD 请求在部分网络/CDN 下会挂起
+        await fetch(url, { mode: 'no-cors', signal: ctrl.signal });
+        return true;
+      } catch (e) {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    async function boot() {
+      let chosen = CDN_URLS[CDN_URLS.length - 1];
+      for (const url of CDN_URLS) {
+        if (await probe(url, 8000)) { chosen = url; break; }
+      }
+      const importMap = document.createElement('script');
+      importMap.type = 'importmap';
+      // three/addons（GLTFLoader 等）跟随主 CDN 同版本
+      const addonsBase = chosen.replace('/build/three.module.js', '/examples/jsm/');
+      importMap.textContent = JSON.stringify({
+        imports: { three: chosen, 'three/addons/': addonsBase },
+      });
+      document.head.appendChild(importMap);
+      try {
+        await import('./src/main.js');
+      } catch (err) {
+        document.body.innerHTML =
+          '<div style="padding:40px;font-family:sans-serif;color:#a33">' +
+          '<h2>加载失败</h2><p>Three.js CDN 与游戏脚本加载出错，请检查网络后刷新。</p>' +
+          '<pre>' + String(err && err.stack || err) + '</pre></div>';
+      }
+    }
+    boot();
+  </script>
+</body>
+</html>

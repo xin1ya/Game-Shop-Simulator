@@ -1,0 +1,28 @@
+sequenceDiagram
+    participant P as 玩家
+    participant UI as ui/panels+hud
+    participant DAY as sim/day
+    participant ECO as sim/economy
+    participant CUS as sim/customers
+    participant DIR as scene/director
+    participant S3 as scene/scene+shop+character
+
+    P->>UI: 进货/调价/升级
+    UI->>ECO: restock/setPrice/buyUpgrade
+    ECO-->>UI: 更新后的 GameState
+    P->>UI: 点击"开门"
+    UI->>DAY: rollDailyEvent + startOpenSession
+    DAY-->>DIR: OpenSession
+    loop 每帧 rAF（dt×speed，逻辑步长0.1s）
+        DIR->>DAY: stepSession(session, gs, rng, dt)
+        DAY->>CUS: spawnCustomer（按时刻表）/ stepCustomer
+        CUS-->>DAY: 购买/流失/满意度副作用 → gs.today
+        DAY-->>DIR: 顾客状态快照
+        DIR->>S3: 同步3D实体位移/动画/气泡
+        DIR->>UI: 刷新 HUD（资金/声望/客流）
+    end
+    DAY-->>UI: phase→CLOSING
+    UI->>ECO: settleDay → DayReport
+    ECO-->>UI: 收支明细/租金/破产或胜利判定
+    UI-->>P: 日结画面
+    P->>UI: "下一天" → advanceSeason, day+1, phase→MORNING

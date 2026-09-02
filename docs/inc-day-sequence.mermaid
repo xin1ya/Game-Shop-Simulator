@@ -1,0 +1,91 @@
+%% 主时序图：MORNING → PREP → OPEN → CLOSING 完整一天
+%% 对应 ARCHITECTURE_INCREMENT.md §5.3
+sequenceDiagram
+    autonumber
+    participant P as 玩家
+    participant UI as ui/panels + hud
+    participant M as main.js
+    participant DAY as sim/day
+    participant LOG as sim/logistics
+    participant INT as sim/interaction
+    participant STF as sim/staff
+    participant NED as sim/needs
+    participant CUS as sim/customers
+    participant ECO as sim/economy
+    participant DIR as scene/director
+    participant S3 as scene/street + shelf
+
+    rect rgb(255, 244, 224)
+    Note over P,ECO: ── MORNING（面板阶段）──
+    P->>UI: SKU 下单（步进 4 = 一箱）／ SKU 定价 ／ 升级 ／ 员工排班
+    UI->>DAY: applyMorningActions(gs, {orders, skuPrices, upgrades, duty}, rng)
+    DAY->>ECO: restock(gs, orders, rng)
+    ECO->>LOG: placeOrder() → Delivery(ORDERED)<br/>sku.inTransit += qty · inventory[cat] += qty · 扣现金 · merch roll 收藏掉落
+    ECO-->>UI: {ok, spent, fulfilled, drops}
+    P->>UI: 点击「开始备货」
+    UI->>DAY: startPrepSession(gs, rng)
+    DAY->>LOG: startDeliveries() → IN_TRANSIT，eta = truckEta(8) + (delayed ? 12 : 0)
+    DAY-->>M: DaySession(phase = PREP)
+    end
+
+    rect rgb(224, 240, 255)
+    Note over M,S3: ── PREP（90s，营业时钟与客流未启动 · 支持 ×2 速）──
+    loop 每帧 rAF（dt × speed，逻辑步长 0.1s）
+        M->>DAY: stepSession(PREP)
+        DAY->>LOG: ① stepDeliveries：eta -= dt
+        LOG-->>S3: eta ≤ 0 → ARRIVED：street.syncStreet 货车驶入 → 卸下 N 个 SEALED 箱 → 驶离
+        DAY->>LOG: ② stepAutoStock（仅 headless / 一键理货时开启）
+        DAY->>STF: ③ stepStaff：仓管员自动补货（4.0 × 0.375 / eff = 1.5s/次）
+        STF->>LOG: restockToSlot()：逐件落格 · backroom -= n · onShelf += n
+        DAY->>INT: ④ stepHold：玩家按住 F
+        INT->>INT: resolveTarget：2.5u 距离（第一人称）+ 准星朝向锥 + 占用校验
+        INT->>LOG: 开箱 1.5s → 取货 0.6s → 上架 4.0s（中断保留 progress）
+        INT-->>UI: holdProgress → 环形进度条 + 「按住 F 开箱 🎁」提示
+        LOG->>LOG: syncInventory(gs)（守恒不变式维护点）
+        DAY->>S3: shelf.syncShelves：visibleCount 三档刷新
+        DAY->>UI: PREP 倒计时 · 货车 ETA · 📦×N（>8 时显示减速提示）
+        DAY->>DAY: prepClock ≥ 90 → startOpenSession(gs, rng, session)
+    end
+    end
+
+    rect rgb(255, 232, 232)
+    Note over M,S3: ── 开门（提前开门 或 自动）──
+    P->>UI: 点「提前开门」
+    UI->>DAY: startOpenSession(gs, rng, session)   ★ 复用同一 session 对象
+    DAY->>DAY: dailyFootfall() + 生成 spawnSchedule · clock = 0<br/>★ 箱子与后仓原样保留（未搬完的继续处理）
+    DAY-->>M: DaySession(phase = OPEN)
+    end
+
+    rect rgb(232, 255, 236)
+    Note over M,S3: ── OPEN（105s · 固定 8 步 tick 顺序）──
+    loop 每帧 rAF（dt × speed，逻辑步长 0.1s）
+        M->>DAY: stepSession(OPEN)
+        DAY->>LOG: ① 未搬完的箱子继续推进
+        DAY->>LOG: ② stepAutoStock（若开启）
+        DAY->>STF: ③ stepStaff：收银员占 paySlot / 导购响应气泡 / 仓管补货 / 体验官加成
+        M->>INT: ④ 玩家按住 F（开箱 · 取货 · 上架 · 结账 · 响应气泡）
+        INT->>INT: 2.5u 距离 + 朝向锥 + 占用校验（员工已 claim → begin 失败，HUD 提示「员工正在处理」）
+        DAY->>ECO: ⑤ stepPaySlots：推进玩家位 + 员工位（互不干扰）
+        DAY->>NED: ⑥ stepNeeds：0.5s 节流扫描 → 生成气泡（同屏 ≤3）→ TTL / 超时后果
+        NED-->>UI: 气泡列表（等距可点击 · 第一人称显示「走近一点（3.2m）」）
+        DAY->>CUS: ⑦ 生成顾客（行人转顾客，session.pedestrians 标记 convertedTo）／ AI 步进
+        CUS->>LOG: takeFromShelf(targetSku) → onShelf -= 1 → 入 session.queue
+        CUS->>LOG: 结账完成 → cash += skuPrices[sku]；怒走 → returnToShelf()（退货不损失）
+        DAY->>DIR: 顾客 / 员工 / 气泡 / 排队站位同步
+        DIR->>S3: 3D 实体位移与动画（员工复用 character.js Q 版小人）
+        DAY->>UI: HUD：⏱️ 倒计时 · 🧍×3/5 · ⭐ 声望 · 💰 现金
+        DAY->>DAY: ⑧ clock ≥ 105 且 顾客清空 且 队列清空 → gs.phase = CLOSING
+    end
+    end
+
+    rect rgb(245, 238, 255)
+    Note over P,STF: ── CLOSING（日结）──
+    DAY-->>M: gs.phase → CLOSING
+    M->>LOG: 未取空的箱子 → 转 backroom（不损失）· 清空 deliveries/boxes
+    UI->>DAY: settleDay(gs)
+    DAY->>STF: wages = Σ 在岗员工 round(dailyWage × stars.wage[★-1] × wageMult)
+    DAY->>ECO: cash -= wages + severance + rent → 破产判定（账单日 cash < 0）
+    ECO-->>UI: DayReport（+ wages / severance / staffCost）
+    UI->>STF: applyEndOfDay(gs, rng)：在岗 fatigue += 25 · 休息 −= 40<br/>欠薪 → 离职 35% · fatigue > 90 → 20% · 否则 2%（★ 置 quitting，次日生效）
+    P->>UI: 「迎接下一天」→ nextDay() → MORNING
+    end

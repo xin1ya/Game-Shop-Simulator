@@ -1,0 +1,40 @@
+%% 日循环阶段机（v2）：新增 PREP 备货阶段
+%% 对应 ARCHITECTURE_INCREMENT.md §4.4
+stateDiagram-v2
+    direction TB
+
+    [*] --> MORNING : 新游戏 / 读档（v1 档迁移后一律落 MORNING，见 §11-U10）
+
+    MORNING --> MORNING : SKU 级下单（步进 4 = 一箱，受限 SKU 需声望解锁）<br/>SKU 级定价（指导价 ±50%）<br/>店铺升级<br/>员工雇佣 / 解雇 / 排班（★ 排班决定当日是否计日薪）
+
+    MORNING --> PREP : 点击「开始备货」→ day.startPrepSession()<br/>货车发车：Delivery ORDERED → IN_TRANSIT（写 eta）
+
+    PREP --> PREP : stepSession(PREP)：<br/>① 货车 ETA 递减 / 到店卸箱<br/>② stepAutoStock（虚拟搬运工 / 一键理货）<br/>③ 仓管员自动补货<br/>④ 玩家按住 F：开箱 1.5s → 取货 0.6s → 上架 4.0s<br/>★ 营业时钟与客流均未启动 · 支持 ×2 速
+
+    PREP --> OPEN : ① prepClock ≥ prepDuration(90s) 自动开门<br/>② 玩家点「提前开门」<br/>★ 未搬完的箱子留到营业中继续处理（软设计，不硬阻断）
+
+    OPEN --> OPEN : stepSession(OPEN) 固定 8 步：<br/>① 物流（未搬完的箱子）<br/>② 虚拟搬运工<br/>③ 员工（收银/导购/仓管/体验官）<br/>④ 玩家交互（2.5u 距离闸门）<br/>⑤ 收银位推进<br/>⑥ 需求气泡扫描（0.5s 节流）<br/>⑦ 顾客 AI（生成 / 状态机 / 队列耐心）<br/>⑧ 阶段推进判定
+
+    OPEN --> CLOSING : clock ≥ openDuration(105s)<br/>且店内顾客散尽 且 队列清空
+
+    CLOSING --> CLOSING : 未取空的箱子 → 转 backroom（不损失）<br/>清空 logistics.deliveries / boxes
+
+    CLOSING --> GAMEOVER : settleDay：账单日（day % 7 === 0）<br/>扣薪资 + 遣散费 + 租金后 cash < 0
+    CLOSING --> VICTORY : settleDay：reputation ≥ 100<br/>（freePlay 中不重复触发）
+    CLOSING --> MORNING : 玩家确认日结 → nextDay()<br/>员工疲劳 ±25/−40 → 离职判定（★ 次日生效）→ day + 1
+
+    GAMEOVER --> [*] : 清档，可重开
+    VICTORY --> MORNING : 玩家选「继续自由经营」→ freePlay = true
+
+    note right of PREP
+      ★ 新增阶段（裁决 5 / A29）
+      不做 PREP 则单日必要操作 ≈116s > 75s 营业时间，必崩（PRD §2.9）
+      PREP 是软资源：随时可「提前开门」，未处理的箱子带入 OPEN
+    end note
+
+    note right of OPEN
+      openDuration 75 → 105（裁决 6 / A30）
+      通关基线 22–28 天（不雇员工 + autoStock 口径，见 §11-U2）
+      若实测偏长，唯一允许手段：footfall.base 8 → 10
+      reputationGoal = 100 锁死，禁止下调
+    end note

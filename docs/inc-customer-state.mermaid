@@ -1,0 +1,45 @@
+%% 顾客 AI 状态机（v2）：新增 QUEUED 结账队列状态
+%% 对应 ARCHITECTURE_INCREMENT.md §4.3
+%% 相对 v1 的变更：TO_CHECKOUT → QUEUED（新增）→ PAYING；购买取货与收款分离
+stateDiagram-v2
+    direction TB
+
+    [*] --> ENTERING : spawn（门口 / 由街道行人转换）
+
+    ENTERING --> BROWSING : 到达空闲货架位<br/>timer = rng.int(browseMin 3, browseMax 6)
+
+    BROWSING --> TO_CHECKOUT : 购买判定成功<br/>★ 先 takeFromShelf()：onShelf -= 1 · inventory[cat] -= 1<br/>（此刻尚未成交，货在顾客手上）
+    BROWSING --> TO_EXPERIENCE : 购买判定失败 且 未体验过 且 rng < expTryChance(0.5)
+    BROWSING --> LEAVING_ANGRY : 无货 / 买不起 且 rng < leaveAngryChance(0.88)
+    BROWSING --> LEAVING : 上述判定均未命中（平静离店，满意度 0）
+
+    TO_EXPERIENCE --> EXPERIENCING : 有空体验位 → 占座<br/>timer = rng.int(15,30) × (体验官在岗 ? 0.8 : 1)<br/>★ 此刻收体验费 cash += experienceFee(gs)
+    TO_EXPERIENCE --> TO_EXPERIENCE : 无空位 → 原地排队，耐心照扣
+
+    EXPERIENCING --> TO_CHECKOUT : 二次购买判定成功<br/>× expBuyBonus(1.2) × (体验官在岗 ? 1.1 : 1)<br/>★ 同样先 takeFromShelf()
+    EXPERIENCING --> LEAVING : 二次判定失败但体验满意（满意度 0）
+
+    TO_CHECKOUT --> QUEUED : 走到收银区<br/>queue.length < 5 → 入队（记录 queueWait / queuePatience）<br/>★ 队列已满（第 6 位）→ LEAVING：满意度 0 · 无声望惩罚 · returnToShelf() 退货
+
+    QUEUED --> PAYING : 被分配到空闲 paySlot<br/>（玩家按 F 占用 / 收银员自动占用）
+    QUEUED --> LEAVING_ANGRY : 队列耐心归零（队首 20s · 其余 14s）<br/>声望 −1 · today.lost += 1 · ★ returnToShelf() 退货（库存不损失）
+    QUEUED --> LEAVING_ANGRY : 顾客自身耐心归零（与队列耐心并行倒计时，取先耗尽者）
+
+    PAYING --> LEAVING : paySlot.elapsed ≥ duration<br/>★ 此刻才计入收入：cash += skuPrices[targetSku] · today.bought += 1<br/>满意度 = 价格 ≤ 指导价×1.1 ? +1 : +1 · 释放 paySlot · 触发常客剧情
+    PAYING --> LEAVING_ANGRY : 顾客自身耐心归零 → 释放 paySlot + 退货
+
+    LEAVING --> GONE : 到达门口
+    LEAVING_ANGRY --> GONE : 到达门口
+    GONE --> [*] : today.satisfactionSum += satisfaction<br/>未购买者 today.lost += 1
+
+    ENTERING --> LEAVING_ANGRY : 耐心 ≤ 0
+    BROWSING --> LEAVING_ANGRY : 耐心 ≤ 0
+    TO_EXPERIENCE --> LEAVING_ANGRY : 耐心 ≤ 0
+
+    note right of QUEUED
+      ★ 新增状态（A22）
+      队列容量 5；第 6 位平静离店（满意度 0，不扣声望）
+      队首耐心 20s / 第 2 位起 14s，与顾客自身耐心并行倒计时
+      结账完成才计入收入 —— 现金守恒的关键切分点
+      paySlots.length：无收银员 = 1（玩家独占）；收银员在岗 = 2（员工 + 老板通道并行）
+    end note

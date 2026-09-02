@@ -1,0 +1,32 @@
+graph TD
+    T01["T01 数据层与存档迁移<br/>config / gameState / save<br/>+ 既有 59 例改造"]
+    T02["T02 物流与货架 sim<br/>logistics.js + economy"]
+    T03["T03 顾客/结账 SKU 化<br/>customers + economy"]
+    T04["T04 交互层 + PREP/OPEN<br/>interaction.js + day.js"]
+    T05["T05 员工系统<br/>staff.js"]
+    T06["T06 需求气泡<br/>needs.js"]
+    T07["T07 3D 场景扩展<br/>street.js + shelf.js"]
+    T08["T08 导演桥接<br/>director + character"]
+    T09["T09 第一人称接入<br/>firstPerson + main"]
+    T10["T10 UI 层<br/>hud + panels"]
+    T11["T11 端到端联调与平衡验证"]
+
+    T01 --> T02 --> T03 --> T04
+    T04 --> T05
+    T04 --> T06
+    T02 --> T07
+    T07 --> T08
+    T05 --> T08
+    T06 --> T08
+    T04 --> T09
+    T07 --> T09
+    T05 --> T10
+    T06 --> T10
+    T09 --> T10
+    T08 --> T11
+    T10 --> T11
+
+    classDef p0 fill:#ffe0b0,stroke:#c9763f,stroke-width:2px,color:#3a2410
+    classDef last fill:#ffd6d6,stroke:#c94f4f,stroke-width:2px,color:#3a2410
+    class T01,T02,T03,T04,T05,T06,T07,T08,T09,T10 p0
+    class T11 last

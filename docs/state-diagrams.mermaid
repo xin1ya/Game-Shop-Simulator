@@ -1,0 +1,14 @@
+---
+title: 日循环状态机
+---
+stateDiagram-v2
+    [*] --> MORNING: 新游戏/读档
+    MORNING --> MORNING: 进货/定价/升级（economy）
+    MORNING --> OPEN: 点击"开门"（rollDailyEvent, startOpenSession）
+    OPEN --> OPEN: stepSession(dt×speed)，顾客AI步进
+    OPEN --> CLOSING: 75秒结束且店内顾客散尽
+    CLOSING --> GAMEOVER: settleDay 判定 cash<0（账单日）
+    CLOSING --> VICTORY: reputation≥100
+    CLOSING --> MORNING: 玩家确认日结，advanceSeason，day+1
+    GAMEOVER --> [*]
+    VICTORY --> [*]: 可转自由经营（MORNING）

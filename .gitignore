@@ -1,0 +1,7 @@
+node_modules/
+tools/e2e/node_modules/
+*.log
+tools/e2e/shots/
+tools/blender/
+__pycache__/
+.DS_Store

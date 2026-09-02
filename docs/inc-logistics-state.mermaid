@@ -1,0 +1,58 @@
+%% 物流状态机：货车单 Delivery × 快递箱 Box × 库存四态 × 货架格位
+%% 对应 ARCHITECTURE_INCREMENT.md §4.1 / §4.2
+stateDiagram-v2
+    direction TB
+
+    state "货车单 Delivery" as D {
+        [*] --> ORDERED : economy.restock() 在 MORNING 下单<br/>扣现金 · sku.inTransit += qty · inventory[cat] += qty
+        ORDERED --> IN_TRANSIT : day.startPrepSession()<br/>eta = truckEta(8s) + delayEventExtra(12s 若快递延迟事件)
+        IN_TRANSIT --> IN_TRANSIT : 每 tick eta -= dt<br/>（PREP 与 OPEN 均推进）
+        IN_TRANSIT --> ARRIVED : eta ≤ 0 → 卸箱<br/>生成 N 个 Box(SEALED)<br/>sku.inTransit -= 4N · inBox += 4N
+        ARRIVED --> DONE : 本单全部 Box 为 EMPTY（货车驶离）
+        DONE --> [*]
+    }
+
+    state "快递箱 Box × 玩家动作" as B {
+        [*] --> SEALED : 卸箱生成<br/>落点 CONFIG.street.doorBoxSlots[slot]（确定性，不用 rng）
+        SEALED --> OPENING : 进入 2.5u + 准星朝向锥 + 按住 F<br/>且 box.claimedBy === null
+        OPENING --> SEALED : 松手 / 走开 > 2.5u / 被抢占<br/>★ progress 保留（不归零）
+        OPENING --> OPEN : progress ≥ unboxTime (1.5s)
+        OPEN --> PICKING : 对已开箱按住 F（2.5u 内）
+        PICKING --> OPEN : 中断 ★ progress 保留
+        PICKING --> EMPTY : progress ≥ pickTime (0.6s)<br/>sku.inBox -= qty · sku.backroom += qty
+        EMPTY --> [*] : 从 logistics.boxes 移除<br/>street.js 淡出
+    }
+
+    state "上架 Restock（backroom → onShelf）" as R {
+        [*] --> RESTOCKING : 走到该品类货架 2.5u 内按住 F<br/>（后仓有该 SKU 货，且货架有空位）
+        RESTOCKING --> RESTOCKING : 中断 → 已补件数保留（按已补整数计）
+        RESTOCKING --> [*] : progress ≥ restockTime (4.0s)<br/>仓管员 = 4.0 × 0.375 / efficiency → 1.5s<br/>逐件落格：backroom -= n · onShelf += n
+    }
+
+    B --> R : 货物已在 backroom<br/>（无「手持」sim 态，见 §11-U4；3D 层用 interaction.kind 派生视觉）
+
+    note for B
+      一箱 = 一取 = 补满一格（裁决 8 / A07）
+      boxCapacity(4) === restockPerAction(4) === stackCapByLevel[0](4)
+      门口箱子 > 8 个时，玩家经过门口速度 ×0.7（软惩罚，不生成障碍 AABB）
+    end note
+
+    state "库存四态（按 SKU 计）" as S {
+        direction LR
+        inTransit --> inBox : 货车到店卸箱（批量 4N 件）
+        inBox --> backroom : 取货完成（0.6s）
+        backroom --> onShelf : 补货上架（4.0s / 次，一次 ≤4 件）
+        onShelf --> sold : 顾客购买判定成功<br/>takeFromShelf() → 入 QUEUED（尚未成交）
+        sold --> onShelf : 队列耐心归零 → 退回货架（★ 库存不损失）
+        sold --> [*] : 结账完成 → cash += skuPrices[sku] · bought += 1
+        inTransit --> [*] : 打烊时未到店 → 留到次日仍在途
+    }
+
+    note for S
+      ★ 只有 onShelf 可售；inTransit / inBox / backroom 均不可售
+      shelfState(gs, cat)：
+        onShelfOf(cat) > 0  → ON_SHELF
+        backroomOf(cat) > 0 → IN_BACKROOM  ★「找货 ❓」气泡触发条件
+        else                → OUT_OF_STOCK
+      守恒：inventory[cat] = Σ(inTransit + inBox + backroom + onShelf)
+    end note

@@ -1,0 +1,296 @@
+%% 核心模块与数据结构关系图（v2 增量）
+%% 对应 ARCHITECTURE_INCREMENT.md §3 / §5
+classDiagram
+    direction TB
+
+    class CONFIG {
+        <<static data>>
+        +version: 2
+        +saveKey: bgs_save_v2
+        +legacySaveKey: bgs_save_v1
+        +openDuration: 105
+        +prepDuration: 90
+        +skus: Record~SkuId, SkuDef~ 【13】
+        +categoryDefaultSku: Record~Cat, SkuId~
+        +logistics / shelf / checkout / time
+        +employees / needs / street / interaction
+        +firstPerson.interactRange: 2.5 (唯一真值)
+    }
+
+    class GameState {
+        <<serializable v2>>
+        +day: number
+        +phase: Phase 【含 PREP】
+        +cash: int
+        +reputation: int
+        +inventory: Record~Cat,int~ 【派生·仅 logistics 可写】
+        +prices: Record~Cat,int~ 【兼容字段】
+        +skus: Record~SkuId,SkuStock~
+        +skuPrices: Record~SkuId,int~
+        +shelfSlots: ShelfSlot[36]
+        +logistics: LogisticsState
+        +staff: StaffState
+        +upgrades / regulars / collectibles
+        +season / eventToday / activityDaysLeft
+        +today: DayStats
+        +rngState / storyQueue / freePlay
+    }
+
+    class SkuStock {
+        +inTransit: int
+        +inBox: int
+        +backroom: int
+        +onShelf: int  %% 唯一可售
+        +soldTotal: int
+    }
+
+    class ShelfSlot {
+        +cat: CategoryId
+        +sku: SkuId | null
+        +qty: int 【0..stackCap】
+    }
+
+    class Delivery {
+        +id: int
+        +state: ORDERED|IN_TRANSIT|ARRIVED|DONE
+        +eta: number
+        +boxes: int[]
+        +delayed: boolean
+    }
+
+    class Box {
+        +id: int
+        +sku: SkuId
+        +qty: 4
+        +state: SEALED|OPEN|EMPTY
+        +slot: int 【门口落点】
+        +progress: number
+        +claimedBy: 'player'|staffId|null
+    }
+
+    class Staff {
+        +id: int
+        +role: cashier|guide|host|stocker
+        +stars: 1|2|3
+        +fatigue: int 【0..100】
+        +onDutyToday: boolean  %% 不上班不付薪
+        +quitting: boolean  %% 次日生效
+        +pos: {x,z}
+        +task: StaffTask|null
+        +timer: number
+    }
+
+    class Need {
+        +id: int
+        +customerId: int
+        +kind: findItem|complain|checkout|explain|recommend
+        +ttl: number
+        +priority: int 【5最高 → 1最低】
+        +state: PENDING|CLAIMED|RESOLVED|EXPIRED
+        +claimedBy: 'player'|staffId|null
+    }
+
+    class Customer {
+        +id: int
+        +state: CustState 【含 QUEUED】
+        +target: CategoryId|null  %% 品类级
+        +targetSku: SkuId|null     %% 派生：在售且价最接近预算
+        +queueWait: number
+        +queuePatience: number 【20|14】
+        +needCooldown: Record~NeedKind,number~
+        +patience / budget / pref / bought / satisfaction
+    }
+
+    class DaySession {
+        <<不序列化>>
+        +phase: PREP|OPEN
+        +prepClock: number
+        +clock: number
+        +speed: 1|2
+        +customers: Customer[]
+        +queue: int[]  %% 替代 v1 session.checkout
+        +paySlots: PaySlot[]
+        +needs: Need[]
+        +needQueue: Need[]
+        +playerNeedCooldown: number
+        +interaction: InteractionState|null  %% 玩家单一槽位
+        +pedestrians: Pedestrian[]
+        +autoStock: boolean
+    }
+
+    class InteractionState {
+        <<不序列化>>
+        +kind: unbox|pick|restock|pay|respond
+        +targetId: int
+        +elapsed: number
+        +duration: number
+        +interrupted: boolean
+    }
+
+    class logistics {
+        <<sim>>
+        +placeOrder(gs, orders, rng)
+        +startDeliveries(gs, session)
+        +stepDeliveries(gs, session, dt)
+        +unboxTick / pickTick / restockToSlot
+        +takeFromShelf(gs, sku) bool
+        +returnToShelf(gs, sku)
+        +shelfState(gs, cat) ShelfState
+        +onShelfOf(gs, cat) int
+        +syncInventory(gs)
+        +stepAutoStock(gs, session, dt)  %% 虚拟搬运工
+        +autoStockBurst(gs, session)
+        +grantStock(gs, sku, state, qty)  %% 测试用
+        +stockInvariantOk(gs) bool
+    }
+
+    class staff {
+        <<sim>>
+        +hire(gs, rng, role)
+        +fire(gs, id)
+        +setDuty(gs, id, onDuty)
+        +stepStaff(gs, session, dt)
+        +payrollFor(gs) int
+        +applyEndOfDay(gs, rng)
+        +efficiency(s) number
+        +durationFor(s, base, roleMult) number
+        +checkoutParallel(gs) 1|2
+        +cashierOnDuty / guideOnDuty / hostOnDuty / stockerOnDuty
+    }
+
+    class needs {
+        <<sim>>
+        +scanNeeds(gs, session, dt)
+        +stepNeeds(gs, session, dt)
+        +respondNeed(gs, session, needId, by, fp)
+        +canPlayerRespond(gs, session, needId, pos) bool
+        +needPriority(kind) int
+    }
+
+    class interaction {
+        <<sim 调度器>>
+        +resolveTarget(gs, session, ctx) Target|null
+        +beginHold(gs, session, kind, targetId) bool
+        +stepHold(gs, session, dt, holding)
+        +cancelHold(gs, session)
+        +holdProgress(session)
+    }
+
+    class day {
+        <<sim 编排>>
+        +startPrepSession(gs, rng) DaySession
+        +startOpenSession(gs, rng, session=null) DaySession
+        +stepSession(session, gs, rng, dt)  %% 固定 8 步
+        +nextDay(gs, rng)
+        +rollDailyEvent(gs, rng)
+    }
+
+    class economy {
+        <<sim>>
+        +restock(gs, orders, rng)  %% 下单→inTransit（签名不变）
+        +setSkuPrice(gs, skuId, price)
+        +purchaseProbability(c, skuDef, gs, afterExp)
+        +skuPriceOf(gs, skuId) int
+        +settleDay(gs) DayReport  %% + wages/severance
+        +dailyFootfall(gs) int
+        +inventoryCap(gs) int
+    }
+
+    class customers {
+        <<sim 最小改动>>
+        +spawnCustomer(gs, rng, forcedType)
+        +stepCustomer(c, session, gs, rng, dt)
+        +deriveTargetSku(c, gs) SkuId|null
+        -chooseTarget(c, gs, rng)  %% 改用 onShelf
+    }
+
+    class street {
+        <<scene>>
+        +buildStreet(scene, gs)
+        +syncStreet(ctx, gs, session, dt)
+    }
+
+    class shelf {
+        <<scene>>
+        +buildShelves(scene, gs, shopCtx)
+        +syncShelves(ctx, gs)  %% visibleCount 三档
+    }
+
+    class director {
+        <<scene 桥接>>
+        +sync(session, gs, dt, elapsed)
+        +syncStaff(gs, session, dt, elapsed)
+        +pickCustomer(ndcX, ndcY, camera)
+    }
+
+    class firstPerson {
+        <<scene>>
+        +clamp / applyLook / computeMoveDelta
+        +slideMove(pos, delta, r, obstacles, bounds)
+        +buildObstacles(fpCfg, opts)
+        +doorSlowFactor(x, z, boxCount, cfg)
+        +distance2D(a, b)
+        +withinRange(a, b, range)
+        +aimScore(aimDir, toTarget)
+    }
+
+    class hud {
+        <<ui>>
+        +update(gs, session)
+        +setCrosshair / setHint
+        +setProgress(kind, ratio, label)
+        +setQueueBadge(n, cap)
+        +setNeedList(needs)
+    }
+
+    class panels {
+        <<ui>>
+        +showMorning(root, gs, handlers)  %% + SKU 下单/定价 + 员工排班
+        +showBackroom(root, gs, handlers)
+        +showClosing(root, gs, report, handlers)  %% + 薪资行
+        +showTitle / showGameOver / showVictory
+    }
+
+    GameState "1" *-- "13" SkuStock : skus
+    GameState "1" *-- "36" ShelfSlot : shelfSlots
+    GameState "1" *-- "1" Delivery : logistics.deliveries
+    GameState "1" *-- "1" Box : logistics.boxes
+    GameState "1" *-- "1" Staff : staff.members
+    DaySession "1" o-- "n" Customer : customers
+    DaySession "1" o-- "1" InteractionState : interaction
+    DaySession "1" o-- "n" Need : needs
+    Customer "1" ..> "1" SkuStock : targetSku 派生
+    Box "1" ..> "1" SkuStock : 卸载 inBox
+    ShelfSlot "1" ..> "1" SkuStock : qty 聚合 = onShelf
+    Staff "1" ..> "1" Need : 导购自动响应
+    CONFIG <.. logistics : 读数值
+    CONFIG <.. staff : 读数值
+    CONFIG <.. needs : 读数值
+    CONFIG <.. economy : 读数值
+    CONFIG <.. firstPerson : 读数值
+    CONFIG <.. hud : 读数值
+
+    day ..> interaction : ④ 顺序
+    day ..> logistics : ①②
+    day ..> staff : ③
+    day ..> needs : ⑥
+    day ..> customers : ⑦
+    day ..> economy : 日结/下单
+    interaction ..> logistics : unbox/pick/restock
+    interaction ..> economy : pay
+    interaction ..> needs : respond
+    staff ..> logistics : 仓管补货
+    customers ..> logistics : takeFromShelf / returnToShelf
+    customers ..> economy : purchaseProbability
+    economy ..> logistics : placeOrder
+
+    director ..> GameState : 只读
+    director ..> DaySession : 只读
+    street ..> GameState : 只读
+    shelf ..> GameState : 只读
+    hud ..> GameState : 只读
+    panels ..> GameState : 只读 + 派发意图
+
+    note for logistics "库存写入唯一入口：gs.inventory 只有本模块可写"
+    note for interaction "Mediator：不含业务规则，只做进度与派发\n（独立成文件的论证见 §2.2）"
+    note for DaySession "不序列化；PREP→OPEN 复用同一对象\n（保证未搬完的箱子与后仓延续）"

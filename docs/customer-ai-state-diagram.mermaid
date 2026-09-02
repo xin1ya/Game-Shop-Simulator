@@ -1,0 +1,20 @@
+---
+title: 顾客 AI 行为状态机
+---
+stateDiagram-v2
+    [*] --> ENTERING: spawn（门口）
+    ENTERING --> BROWSING: 到达空闲货架位（3~6s浏览计时）
+    BROWSING --> TO_CHECKOUT: 选中品类且购买判定成功且有货
+    BROWSING --> TO_EXPERIENCE: 偏好未满足且有闲体验位（概率进入）
+    BROWSING --> LEAVING_ANGRY: 无货/买不起且未进体验区（流失概率判定）
+    TO_EXPERIENCE --> EXPERIENCING: 到达体验位（15~30s，收体验费）
+    EXPERIENCING --> TO_CHECKOUT: 结束后二次购买判定（+20%加成）成功
+    EXPERIENCING --> LEAVING: 二次判定失败但体验满意
+    TO_CHECKOUT --> PAYING: 到达收银位（2s结账）
+    PAYING --> LEAVING: 付款完成，cash+=price，满意度+1/+2
+    LEAVING --> GONE: 到达门口
+    LEAVING_ANGRY --> GONE: 到达门口，声望-1
+    ENTERING --> LEAVING_ANGRY: 耐心≤0
+    BROWSING --> LEAVING_ANGRY: 耐心≤0
+    TO_EXPERIENCE --> LEAVING_ANGRY: 耐心≤0
+    TO_CHECKOUT --> LEAVING_ANGRY: 耐心≤0
