@@ -28,14 +28,11 @@ server {
     root /var/www/game-shop/current;
     index index.html;
 
-    # GLB 模型与 ESM 模块 MIME（nginx 默认不含 .glb；.mjs 部分版本缺）
-    types {
-        model/gltf-binary glb;
-        text/javascript mjs;
-    }
+    # 注意：不要自起 types{} 块（替换语义会覆盖默认 MIME 表，html 会变 octet-stream 触发下载）。
+    # .glb/.mjs 的类型补在主 /etc/nginx/mime.types（server-setup.sh 已处理；新版 nginx 自带）。
 
     gzip on;
-    gzip_types text/html text/css text/javascript application/javascript application/json model/gltf-binary;
+    gzip_types text/css text/javascript application/javascript application/json model/gltf-binary;
     gzip_min_length 1k;
 
     location / {
@@ -53,6 +50,10 @@ server {
     }
 }
 NGINX
+
+# GLB/ESM 类型补进主 mime.types（幂等；新版 nginx mime.types 已含 glb/mjs，grep 守卫）
+grep -q "model/gltf-binary" /etc/nginx/mime.types \
+  || sed -i "s|types {|types {\n    model/gltf-binary  glb;\n    text/javascript  js mjs;|" /etc/nginx/mime.types
 
 nginx -t
 systemctl enable nginx
