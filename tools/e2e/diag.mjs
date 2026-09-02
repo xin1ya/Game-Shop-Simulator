@@ -1,15 +1,10 @@
 import puppeteer from 'puppeteer-core';
-const browser = await puppeteer.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:'new',args:['--enable-unsafe-swiftshader','--no-sandbox']});
-const page = await browser.newPage();
-page.on('pageerror',e=>console.log('[pageerror]',String(e).slice(0,200)));
-await page.goto('http://localhost:8321/index.html',{waitUntil:'domcontentloaded'});
-await page.waitForFunction(()=>window.BGS && document.querySelector('button[data-k="new"]'),{timeout:30000});
-await page.click('button[data-k="new"]');
-await page.waitForSelector('[data-k="mall"]');
-const r = await page.evaluate(()=>({
-  cash1: window.BGS.cheat.cash(5000),
-  rep1: window.BGS.cheat.rep(25),
-  gs: { cash: window.BGS.gs.cash, rep: window.BGS.gs.reputation },
-}));
-console.log(JSON.stringify(r, null, 1));
-await browser.close();
+for (const proxyArg of ['--proxy-server=127.0.0.1:7890','--proxy-server=http://127.0.0.1:7890','--proxy-server=socks5://127.0.0.1:7890']) {
+  const browser = await puppeteer.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:'new',args:['--no-sandbox',proxyArg]});
+  try {
+    const page = await browser.newPage();
+    await page.goto('https://api.ipify.org?format=json',{timeout:15000});
+    console.log(proxyArg, '=>', await page.evaluate(()=>document.body.innerText.slice(0,60)));
+  } catch (e) { console.log(proxyArg, '=> FAIL', String(e).slice(0,80)); }
+  await browser.close();
+}

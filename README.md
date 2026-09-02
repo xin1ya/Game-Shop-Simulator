@@ -4,7 +4,9 @@
 
 ## 🎮 在线试玩
 
-**https://xin1ya.github.io/Game-Shop-Simulator/**
+**http://easuvn3.cn/**（阿里云正式 demo 地址）
+
+备用：https://xin1ya.github.io/Game-Shop-Simulator/（GitHub Pages）
 
 打开即玩（PC 浏览器 + 键鼠；首次加载需联网拉取 three.js CDN）。
 
